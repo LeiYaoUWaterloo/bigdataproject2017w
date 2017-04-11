@@ -1,0 +1,6 @@
+/data/*
+/target/*
+/.idea/*
+src/main/main.iml
+bigdataproject2017w.iml
+/output/*
