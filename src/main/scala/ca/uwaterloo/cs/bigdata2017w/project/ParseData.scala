@@ -98,6 +98,6 @@ object ParseData extends Tokenizer{
       .map(tuple => tuple.swap)
       .sortByKey(false)
       .map(tuple => tuple.swap)
-      .take(500).foreach(println(_))
+      .take(100).foreach(println(_))
   }
 }
