@@ -5,14 +5,16 @@ import org.apache.hadoop.fs._
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.rogach.scallop._
-import scala.collection.mutable._
 
+
+import scala.collection.mutable._
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
-
 import io.bespin.scala.util.Tokenizer
+
+import scala.collection.mutable
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
   mainOptions = Seq(review, output)
@@ -32,11 +34,17 @@ class Review {
   @JsonProperty var funny: String = null
   @JsonProperty var cool: String = null
 
-  override def toString = s"Review(user_id=$user_id, business_id=$business_id, stars=$stars, date=$date, text=$text, useful=$useful, funny=$funny, cool=$cool)"
+  override def toString = s"Review(user_id=$user_id, business_id=$business_id, stars=$stars, " +
+    s"date=$date, text=$text, useful=$useful, funny=$funny, cool=$cool)"
 }
+
 
 object ContentBasedRecommendation extends Tokenizer{
   val log = Logger.getLogger(getClass().getName())
+
+  def isOnlyLetters(str: String): Boolean = {
+    str.forall(c => Character.isLetter(c))
+  }
 
   def wcIter(iter: Iterator[String]): Iterator[(String, Int)] = {
     val counts = new HashMap[String, Int]() { override def default(key: String) = 0 }
@@ -63,12 +71,8 @@ object ContentBasedRecommendation extends Tokenizer{
     val outputDir = new Path(args.output())
     FileSystem.get(sc.hadoopConfiguration).delete(outputDir, true)
 
-    //construct stop words hashmap
-    val stop_word = sc.textFile("data/stopwords.txt")
-    val map1 = stop_word.map(line =>{
-      (line, 1)
-    }).collectAsMap()
-    val stopwords = sc.broadcast(map1)
+    //construct stop words hashset
+    val stopWords = sc.broadcast(scala.io.Source.fromFile("data/stopwords.txt").getLines().toSet).value
 
     //construct stemming words hashmap
     val stemming_word = sc.textFile("data/result.txt")
@@ -78,18 +82,45 @@ object ContentBasedRecommendation extends Tokenizer{
     }).collectAsMap()
     val stemmer = sc.broadcast(map2)
 
-    val accum = sc.longAccumulator("My Accumulator")
-
     val review = sc.textFile(args.review())
     var results = review.flatMap(record => {
       Some(mapper.readValue(record, classOf[Review]))
     }).map(array => {
-      array.text
-    }).flatMap(line => {
+      (array.business_id, array.text)
+    }).groupByKey()
+      .map(tuple => {
+        val reviews = new ArrayBuffer[String]()
+        val iter = tuple._2.iterator
+        while(iter.hasNext) {
+          val words = tokenize(iter.next())
+          for (word <- words) {
+            val wordLowcase = word.toLowerCase
+            if (!stopWords.contains(wordLowcase)) {
+              if (stemmer.value.contains(wordLowcase)) {
+                reviews += stemmer.value(wordLowcase)
+              } else {
+                reviews += wordLowcase
+              }
+            }
+          }
+        }
+        (tuple._1, reviews)
+      }).map(tuple => {
+      val termFreqs = tuple._2.foldLeft(new mutable.HashMap[String, Int]()) {
+        (map, term) => {
+          map += term -> (map.getOrElse(term, 0) + 1)
+          map
+        }
+      }
+      termFreqs
+    })
+
+
+/*      .flatMap(line => {
       tokenize(line)
     }).filter(word => {
       val wordLowcase = word.toLowerCase
-      !stopwords.value.contains(wordLowcase)
+      !stopWords.contains(wordLowcase)
     }).map(word => {
       val wordLowcase = word.toLowerCase
       if (stemmer.value.contains(wordLowcase)) {
@@ -104,7 +135,7 @@ object ContentBasedRecommendation extends Tokenizer{
       .map(tuple => tuple.swap)
       .filter(tuple => {
         tuple._2 > 2
-      }).foreach(x => accum.add(1))
-      println(accum.value)
+      })
+*/
   }
 }
