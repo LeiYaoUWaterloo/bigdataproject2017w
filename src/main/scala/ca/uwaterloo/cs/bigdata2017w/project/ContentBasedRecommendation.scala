@@ -35,7 +35,7 @@ class Review {
   override def toString = s"Review(user_id=$user_id, business_id=$business_id, stars=$stars, date=$date, text=$text, useful=$useful, funny=$funny, cool=$cool)"
 }
 
-object ParseData extends Tokenizer{
+object ContentBasedRecommendation extends Tokenizer{
   val log = Logger.getLogger(getClass().getName())
 
   def wcIter(iter: Iterator[String]): Iterator[(String, Int)] = {
@@ -57,7 +57,7 @@ object ParseData extends Tokenizer{
     log.info("Input: " + args.review())
     log.info("Output: " + args.output())
 
-    val conf = new SparkConf().setAppName("ParseData")
+    val conf = new SparkConf().setAppName("ContentBasedRecommendation")
     val sc = new SparkContext(conf)
 
     val outputDir = new Path(args.output())
