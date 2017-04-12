@@ -63,11 +63,20 @@ object ParseData extends Tokenizer{
     val outputDir = new Path(args.output())
     FileSystem.get(sc.hadoopConfiguration).delete(outputDir, true)
 
+    //construct stop words hashmap
     val stop_word = sc.textFile("data/stopwords.txt")
-    val map = stop_word.map(line =>{
+    val map1 = stop_word.map(line =>{
       (line, 1)
     }).collectAsMap()
-    val hashmap = sc.broadcast(map)
+    val stopwords = sc.broadcast(map1)
+
+    //construct stemming words hashmap
+    val stemming_word = sc.textFile("data/result.txt")
+    val map2 = stemming_word.map(line =>{
+      val words = tokenize(line)
+      (words(0), words(1))
+    }).collectAsMap()
+    val stemmer = sc.broadcast(map2)
 
     val review = sc.textFile(args.review())
     var results = review.flatMap(record => {
@@ -77,12 +86,18 @@ object ParseData extends Tokenizer{
     }).flatMap(line => {
       tokenize(line)
     }).filter(word => {
-      !hashmap.value.contains(word)
+      !stopwords.value.contains(word)
+    }).map(word => {
+      if (stemmer.value.contains(word)) {
+        stemmer.value(word)
+      } else {
+        word
+      }
     }).mapPartitions(wcIter)
       .reduceByKey(_ + _)
       .map(tuple => tuple.swap)
       .sortByKey(false)
       .map(tuple => tuple.swap)
-      .take(150).foreach(println(_))
+      .take(500).foreach(println(_))
   }
 }
