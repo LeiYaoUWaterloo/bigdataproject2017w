@@ -78,6 +78,8 @@ object ContentBasedRecommendation extends Tokenizer{
     }).collectAsMap()
     val stemmer = sc.broadcast(map2)
 
+    val accum = sc.longAccumulator("My Accumulator")
+
     val review = sc.textFile(args.review())
     var results = review.flatMap(record => {
       Some(mapper.readValue(record, classOf[Review]))
@@ -86,7 +88,8 @@ object ContentBasedRecommendation extends Tokenizer{
     }).flatMap(line => {
       tokenize(line)
     }).filter(word => {
-      !stopwords.value.contains(word)
+      val wordLowcase = word.toLowerCase
+      !stopwords.value.contains(wordLowcase)
     }).map(word => {
       val wordLowcase = word.toLowerCase
       if (stemmer.value.contains(wordLowcase)) {
@@ -99,6 +102,7 @@ object ContentBasedRecommendation extends Tokenizer{
       .map(tuple => tuple.swap)
       .sortByKey(false)
       .map(tuple => tuple.swap)
-      .take(100).foreach(println(_))
+      .foreach(x => accum.add(1))
+      println(accum.value)
   }
 }
