@@ -102,7 +102,9 @@ object ContentBasedRecommendation extends Tokenizer{
       .map(tuple => tuple.swap)
       .sortByKey(false)
       .map(tuple => tuple.swap)
-      .foreach(x => accum.add(1))
+      .filter(tuple => {
+        tuple._2 > 2
+      }).foreach(x => accum.add(1))
       println(accum.value)
   }
 }
