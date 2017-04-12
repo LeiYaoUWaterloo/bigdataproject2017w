@@ -88,10 +88,11 @@ object ContentBasedRecommendation extends Tokenizer{
     }).filter(word => {
       !stopwords.value.contains(word)
     }).map(word => {
-      if (stemmer.value.contains(word)) {
-        stemmer.value(word)
+      val wordLowcase = word.toLowerCase
+      if (stemmer.value.contains(wordLowcase)) {
+        stemmer.value(wordLowcase)
       } else {
-        word
+        wordLowcase
       }
     }).mapPartitions(wcIter)
       .reduceByKey(_ + _)
