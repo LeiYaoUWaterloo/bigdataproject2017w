@@ -125,9 +125,9 @@ object ContentBasedRecommendation extends Tokenizer{
     import sqlContext.implicits._
 
     val termsDF = lemmatized.toDF("title", "terms")
-    val filtered = termsDF.where(size($"terms") > 3)
+    val filtered = termsDF.where(size($"terms") > 4)
 
-    val numTerms = 2000
+    val numTerms = 1000
     val countVectorizer = new CountVectorizer()
       .setInputCol("terms").setOutputCol("termFreqs").setVocabSize(numTerms)
     val vocabModel = countVectorizer.fit(filtered)
@@ -135,7 +135,8 @@ object ContentBasedRecommendation extends Tokenizer{
     val termIds = vocabModel.vocabulary
     docTermFreqs.cache()
 
-    val docIds = docTermFreqs.rdd.map(_.getString(0)).zipWithUniqueId().map(_.swap).collect().toMap
+    val docIds = sc.broadcast(docTermFreqs.rdd.map(_.getString(0)).zipWithUniqueId().map(_.swap).collectAsMap())
+
     val idf = new IDF().setInputCol("termFreqs").setOutputCol("tfidfVec")
     val idfModel = idf.fit(docTermFreqs)
     val docTermMatrix = idfModel.transform(docTermFreqs).select("title", "tfidfVec")
