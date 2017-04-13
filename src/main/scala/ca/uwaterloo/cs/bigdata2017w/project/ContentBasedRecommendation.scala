@@ -129,7 +129,7 @@ object ContentBasedRecommendation extends Tokenizer{
 
     val docFreqs = docTermFreqs.flatMap(_.keySet).map((_, 1)).reduceByKey(_+_)
 
-    val numTerms = 10000
+    val numTerms = 2000
     val ordering = Ordering.by[(String, Int), Int](_._2)
     val topDocFreqs = docFreqs.top(numTerms)(ordering)
 
@@ -151,8 +151,9 @@ object ContentBasedRecommendation extends Tokenizer{
 
     vecs.cache()
     val mat = new RowMatrix(vecs)
-    val k = 1000
+    val k = 500
     val svd = mat.computeSVD(k, computeU = true)
+
 
 
 /*    .flatMap(line => {
