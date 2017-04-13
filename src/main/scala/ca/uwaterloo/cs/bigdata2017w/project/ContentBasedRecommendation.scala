@@ -7,16 +7,21 @@ import org.apache.spark.SparkConf
 import org.rogach.scallop._
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.linalg.distributed.RowMatrix
+import org.apache.spark.ml.linalg.{Vector => MLVector}
 
 import scala.collection.mutable._
 import scala.collection.mutable
 import scala.collection.JavaConversions._
-
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import io.bespin.scala.util.Tokenizer
+
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.ml.feature.{CountVectorizer, IDF}
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
   mainOptions = Seq(review, output)
@@ -116,6 +121,39 @@ object ContentBasedRecommendation extends Tokenizer{
         (tuple._1, reviews)
       })
 
+    val sqlContext = new SQLContext(sc)
+    import sqlContext.implicits._
+
+    val termsDF = lemmatized.toDF("title", "terms")
+    val filtered = termsDF.where(size($"terms") > 3)
+
+    val numTerms = 2000
+    val countVectorizer = new CountVectorizer()
+      .setInputCol("terms").setOutputCol("termFreqs").setVocabSize(numTerms)
+    val vocabModel = countVectorizer.fit(filtered)
+    val docTermFreqs = vocabModel.transform(filtered)
+    val termIds = vocabModel.vocabulary
+    docTermFreqs.cache()
+
+    val docIds = docTermFreqs.rdd.map(_.getString(0)).zipWithUniqueId().map(_.swap).collect().toMap
+    val idf = new IDF().setInputCol("termFreqs").setOutputCol("tfidfVec")
+    val idfModel = idf.fit(docTermFreqs)
+    val docTermMatrix = idfModel.transform(docTermFreqs).select("title", "tfidfVec")
+    val termIdfs = idfModel.idf.toArray
+
+    docTermMatrix.cache()
+
+    val vecRdd = docTermMatrix.select("tfidfVec").rdd.map { row =>
+      Vectors.fromML(row.getAs[MLVector]("tfidfVec"))
+    }
+    vecRdd.cache()
+
+    val mat = new RowMatrix(vecRdd)
+    val k = 500
+    val svd = mat.computeSVD(k, computeU = true)
+
+
+    /*
     val docTermFreqs = lemmatized.map(tuple => {
       val termFreqs = tuple._2.foldLeft(new mutable.HashMap[String, Int]()) {
         (map, term) => {
@@ -136,6 +174,7 @@ object ContentBasedRecommendation extends Tokenizer{
     val idfs = topDocFreqs.map{
       case (term, count) => (term, math.log(numDocs.toDouble / count))
     }.collectAsMap()
+    val bIdfs = sc.broadcast(idfs).value
 
     val termIds = sc.broadcast(idfs.keys.zipWithIndex.toMap).value
 
@@ -144,7 +183,7 @@ object ContentBasedRecommendation extends Tokenizer{
       val termScores = termFreqs.filter {
         case (term, freq) => termIds.containsKey(term)
       }.map{
-        case (term, freq) => (termIds(term), idfs(term) * termFreqs(term) / docTotalTerms)
+        case (term, freq) => (termIds(term), bIdfs(term) * termFreqs(term) / docTotalTerms)
       }.toSeq
       Vectors.sparse(termIds.size, termScores)
     })
@@ -153,8 +192,7 @@ object ContentBasedRecommendation extends Tokenizer{
     val mat = new RowMatrix(vecs)
     val k = 500
     val svd = mat.computeSVD(k, computeU = true)
-
-
+    */
 
 /*    .flatMap(line => {
       tokenize(line)
