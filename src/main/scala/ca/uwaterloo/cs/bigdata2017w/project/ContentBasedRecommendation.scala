@@ -5,16 +5,17 @@ import org.apache.hadoop.fs._
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.rogach.scallop._
-
+import org.apache.spark.mllib.linalg.Vectors
 
 import scala.collection.mutable._
+import scala.collection.mutable
+import scala.collection.JavaConversions._
+
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import io.bespin.scala.util.Tokenizer
-
-import scala.collection.mutable
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
   mainOptions = Seq(review, output)
@@ -83,12 +84,16 @@ object ContentBasedRecommendation extends Tokenizer{
     val stemmer = sc.broadcast(map2)
 
     val review = sc.textFile(args.review())
-    var results = review.flatMap(record => {
+
+    val aggregatedReview = review.flatMap(record => {
       Some(mapper.readValue(record, classOf[Review]))
     }).map(array => {
       (array.business_id, array.text)
     }).groupByKey()
-      .map(tuple => {
+
+    val numDocs = aggregatedReview.count()
+
+    val lemmatized = aggregatedReview.map(tuple => {
         val reviews = new ArrayBuffer[String]()
         val iter = tuple._2.iterator
         while(iter.hasNext) {
@@ -105,7 +110,9 @@ object ContentBasedRecommendation extends Tokenizer{
           }
         }
         (tuple._1, reviews)
-      }).map(tuple => {
+      })
+
+    val docTermFreqs = lemmatized.map(tuple => {
       val termFreqs = tuple._2.foldLeft(new mutable.HashMap[String, Int]()) {
         (map, term) => {
           map += term -> (map.getOrElse(term, 0) + 1)
@@ -114,9 +121,31 @@ object ContentBasedRecommendation extends Tokenizer{
       }
       termFreqs
     })
+    docTermFreqs.cache()
 
+    val docFreqs = docTermFreqs.flatMap(_.keySet).map((_, 1)).reduceByKey(_+_)
 
-/*      .flatMap(line => {
+    val numTerms = 50000
+    val ordering = Ordering.by[(String, Int), Int](_._2)
+    val topDocFreqs = docFreqs.top(numTerms)(ordering)
+
+    val idfs = docFreqs.map{
+      case (term, count) => (term, math.log(numDocs.toDouble / count))
+    }.collectAsMap()
+
+    val termIds = sc.broadcast(idfs.keys.zipWithIndex.toMap).value
+
+    val vecs = docTermFreqs.map(termFreqs => {
+      val docTotalTerms = termFreqs.values().sum
+      val termScores = termFreqs.filter {
+        case (term, freq) => termIds.containsKey(term)
+      }.map{
+        case (term, freq) => (termIds(term), idfs(term) * termFreqs(term) / docTotalTerms)
+      }.toSeq
+      Vectors.sparse(termIds.size, termScores)
+    })
+
+/*    .flatMap(line => {
       tokenize(line)
     }).filter(word => {
       val wordLowcase = word.toLowerCase
