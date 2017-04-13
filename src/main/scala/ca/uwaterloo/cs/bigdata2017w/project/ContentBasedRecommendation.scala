@@ -6,6 +6,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.rogach.scallop._
 import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.mllib.linalg.distributed.RowMatrix
 
 import scala.collection.mutable._
 import scala.collection.mutable
@@ -38,7 +39,6 @@ class Review {
   override def toString = s"Review(user_id=$user_id, business_id=$business_id, stars=$stars, " +
     s"date=$date, text=$text, useful=$useful, funny=$funny, cool=$cool)"
 }
-
 
 object ContentBasedRecommendation extends Tokenizer{
   val log = Logger.getLogger(getClass().getName())
@@ -144,6 +144,12 @@ object ContentBasedRecommendation extends Tokenizer{
       }.toSeq
       Vectors.sparse(termIds.size, termScores)
     })
+
+    vecs.cache()
+    val mat = new RowMatrix(vecs)
+    val k = 1000
+    val svd = mat.computeSVD(k, computeU = true)
+
 
 /*    .flatMap(line => {
       tokenize(line)
