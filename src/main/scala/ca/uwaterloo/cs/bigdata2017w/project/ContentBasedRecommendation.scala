@@ -72,8 +72,12 @@ object ContentBasedRecommendation extends Tokenizer{
     val outputDir = new Path(args.output())
     FileSystem.get(sc.hadoopConfiguration).delete(outputDir, true)
 
-    //construct stop words hashset
-    val stopWords = sc.broadcast(scala.io.Source.fromFile("data/stopwords.txt").getLines().toSet).value
+    //construct stop words hashmap
+    val stop_word = sc.textFile("data/stopwords.txt")
+    val map1 = stop_word.map(line =>{
+      (line, 1)
+    }).collectAsMap()
+    val stopWords = sc.broadcast(map1).value
 
     //construct stemming words hashmap
     val stemming_word = sc.textFile("data/result.txt")
@@ -100,7 +104,7 @@ object ContentBasedRecommendation extends Tokenizer{
           val words = tokenize(iter.next())
           for (word <- words) {
             val wordLowcase = word.toLowerCase
-            if (!stopWords.contains(wordLowcase) && isOnlyLetters(wordLowcase)) {
+            if (!stopWords.containsKey(wordLowcase) && isOnlyLetters(wordLowcase)) {
               if (stemmer.containsKey(wordLowcase)) {
                 reviews += stemmer(wordLowcase)
               } else {
