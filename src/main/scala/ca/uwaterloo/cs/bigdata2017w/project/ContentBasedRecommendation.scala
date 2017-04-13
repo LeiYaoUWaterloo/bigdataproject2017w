@@ -131,9 +131,9 @@ object ContentBasedRecommendation extends Tokenizer{
 
     val numTerms = 2000
     val ordering = Ordering.by[(String, Int), Int](_._2)
-    val topDocFreqs = docFreqs.top(numTerms)(ordering)
+    val topDocFreqs = sc.parallelize(docFreqs.top(numTerms)(ordering))
 
-    val idfs = docFreqs.map{
+    val idfs = topDocFreqs.map{
       case (term, count) => (term, math.log(numDocs.toDouble / count))
     }.collectAsMap()
 
