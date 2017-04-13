@@ -120,7 +120,7 @@ object ContentBasedRecommendation extends Tokenizer{
         }
         (tuple._1, reviews)
       })
-
+/*
     val sqlContext = new SQLContext(sc)
     import sqlContext.implicits._
 
@@ -151,10 +151,10 @@ object ContentBasedRecommendation extends Tokenizer{
 
     val mat = new RowMatrix(vecRdd)
     val k = 500
-//    val svd = mat.computeSVD(k, computeU = true)
+    val svd = mat.computeSVD(k, computeU = true)
+*/
 
 
-    /*
     val docTermFreqs = lemmatized.map(tuple => {
       val termFreqs = tuple._2.foldLeft(new mutable.HashMap[String, Int]()) {
         (map, term) => {
@@ -192,8 +192,8 @@ object ContentBasedRecommendation extends Tokenizer{
     vecs.cache()
     val mat = new RowMatrix(vecs)
     val k = 500
-    val svd = mat.computeSVD(k, computeU = true)
-    */
+    //val svd = mat.computeSVD(k, computeU = true)
+
 
 /*    .flatMap(line => {
       tokenize(line)
