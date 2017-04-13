@@ -192,9 +192,10 @@ object ContentBasedRecommendation extends Tokenizer{
     vecs.cache()
     val mat = new RowMatrix(vecs)
     val k = 500
-    //val svd = mat.computeSVD(k, computeU = true)
-    vecs.take(1)
-
+    val svd = mat.computeSVD(k, computeU = true)
+    
+    val u = svd.U.rows.zipWithUniqueId()
+    println("Singular values: " + svd.s)
 
 /*    .flatMap(line => {
       tokenize(line)
