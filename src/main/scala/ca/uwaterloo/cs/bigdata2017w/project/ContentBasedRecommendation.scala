@@ -193,6 +193,7 @@ object ContentBasedRecommendation extends Tokenizer{
     val mat = new RowMatrix(vecs)
     val k = 500
     //val svd = mat.computeSVD(k, computeU = true)
+    vecs.take(1)
 
 
 /*    .flatMap(line => {
