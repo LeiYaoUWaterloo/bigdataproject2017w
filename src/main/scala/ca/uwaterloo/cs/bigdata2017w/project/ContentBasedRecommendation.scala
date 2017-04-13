@@ -24,9 +24,8 @@ import org.apache.spark.sql.SQLContext
 import org.apache.spark.ml.feature.{CountVectorizer, IDF}
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
-  mainOptions = Seq(review, output)
+  mainOptions = Seq(review)
   val review = opt[String](descr = "input path", required = true)
-  val output = opt[String](descr = "output path", required = true)
   verify()
 }
 
@@ -52,30 +51,18 @@ object ContentBasedRecommendation extends Tokenizer{
     str.forall(c => Character.isLetter(c))
   }
 
-  def wcIter(iter: Iterator[String]): Iterator[(String, Int)] = {
-    val counts = new HashMap[String, Int]() { override def default(key: String) = 0 }
-
-    iter.flatMap(line => tokenize(line))
-      .foreach { t => counts.put(t, counts(t) + 1) }
-
-    counts.iterator
-  }
-
   val mapper = new ObjectMapper()
   mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
   mapper.registerModule(DefaultScalaModule)
 
   def main(argv: Array[String]): Unit = {
+    //set up
     val args = new Conf(argv)
 
     log.info("Input: " + args.review())
-    log.info("Output: " + args.output())
 
     val conf = new SparkConf().setAppName("ContentBasedRecommendation")
     val sc = new SparkContext(conf)
-
-    val outputDir = new Path(args.output())
-    FileSystem.get(sc.hadoopConfiguration).delete(outputDir, true)
 
     //construct stop words hashmap
     val stop_word = sc.textFile("data/stopwords.txt")
@@ -94,17 +81,20 @@ object ContentBasedRecommendation extends Tokenizer{
 
     val review = sc.textFile(args.review())
 
+    //aggregate reviews for each bussiness
     val aggregatedReview = review.flatMap(record => {
       Some(mapper.readValue(record, classOf[Review]))
     }).map(array => {
       (array.business_id, array.text)
     }).groupByKey()
 
-    val numDocs = aggregatedReview.count()
+    //total number of bussinesses
+    val numBusinesses = aggregatedReview.count()
 
-    val lemmatized = aggregatedReview.map(tuple => {
+    //preprocess: tokenize + lowcase + delele stopwords + only words + stemming
+    val preprocessedReviews = aggregatedReview.map(businessIdReviews => {
         val reviews = new ArrayBuffer[String]()
-        val iter = tuple._2.iterator
+        val iter = businessIdReviews._2.iterator
         while(iter.hasNext) {
           val words = tokenize(iter.next())
           for (word <- words) {
@@ -118,8 +108,13 @@ object ContentBasedRecommendation extends Tokenizer{
             }
           }
         }
-        (tuple._1, reviews)
+        (businessIdReviews._1, reviews)
       })
+
+    
+
+
+
 /*
     val sqlContext = new SQLContext(sc)
     import sqlContext.implicits._
@@ -154,7 +149,7 @@ object ContentBasedRecommendation extends Tokenizer{
     val svd = mat.computeSVD(k, computeU = true)
 */
 
-
+/*
     val docTermFreqs = lemmatized.map(tuple => {
       val termFreqs = tuple._2.foldLeft(new mutable.HashMap[String, Int]()) {
         (map, term) => {
@@ -193,11 +188,13 @@ object ContentBasedRecommendation extends Tokenizer{
     val mat = new RowMatrix(vecs)
     val k = 500
     val svd = mat.computeSVD(k, computeU = true)
-    
+
     val u = svd.U.rows.zipWithUniqueId()
     println("Singular values: " + svd.s)
+    sc.stop()
+*/
 
-/*    .flatMap(line => {
+    /*    .flatMap(line => {
       tokenize(line)
     }).filter(word => {
       val wordLowcase = word.toLowerCase
