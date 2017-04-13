@@ -81,7 +81,7 @@ object ContentBasedRecommendation extends Tokenizer{
       val words = tokenize(line)
       (words(0), words(1))
     }).collectAsMap()
-    val stemmer = sc.broadcast(map2)
+    val stemmer = sc.broadcast(map2).value
 
     val review = sc.textFile(args.review())
 
@@ -100,9 +100,9 @@ object ContentBasedRecommendation extends Tokenizer{
           val words = tokenize(iter.next())
           for (word <- words) {
             val wordLowcase = word.toLowerCase
-            if (!stopWords.contains(wordLowcase)) {
-              if (stemmer.value.contains(wordLowcase)) {
-                reviews += stemmer.value(wordLowcase)
+            if (!stopWords.contains(wordLowcase) && isOnlyLetters(wordLowcase)) {
+              if (stemmer.containsKey(wordLowcase)) {
+                reviews += stemmer(wordLowcase)
               } else {
                 reviews += wordLowcase
               }
