@@ -155,10 +155,7 @@ object ContentBasedRecommendation extends Tokenizer{
       }.toSeq
       (businessIdTermFreqs._1, Vectors.sparse(bTermIds.size, termScores))
     })
-      businessIdVecs.take(30).foreach(println(_))
-      sc.parallelize(businessIdVecs.take(1000)).saveAsTextFile(args.output())
 
-  /*
     val vecs = businessIdVecs.map(businessIdTermTfidf => {
       businessIdTermTfidf._2
     })
@@ -169,6 +166,6 @@ object ContentBasedRecommendation extends Tokenizer{
     val U: RowMatrix = svd.U
     val s: Vector = svd.s
     val V: Matrix = svd.V
-*/
+
   }
 }
