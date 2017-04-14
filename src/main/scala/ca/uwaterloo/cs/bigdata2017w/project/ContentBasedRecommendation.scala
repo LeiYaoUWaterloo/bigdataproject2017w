@@ -144,59 +144,30 @@ object ContentBasedRecommendation extends Tokenizer{
     val bIdfs = sc.broadcast(idfs).value
 
     // [term, index] index is a number indicating which column this term represents
-    val termIds = bIdfs.keys.zipWithIndex.toMap
+    val termIds = idfs.keys.zipWithIndex.toMap
     val bTermIds = sc.broadcast(termIds).value
 
     //compute tf-idf and get the final business * term matrix, which is "numBusiness * numTerms"
-    val vecs = businessTermFreqs.map(businessIdTermFreqs => {
+    val businessIdVecs = businessTermFreqs.map(businessIdTermFreqs => {
       val businessTotalTerms = businessIdTermFreqs._2.values.sum
       val termScores = businessIdTermFreqs._2.filter {
         case (term, freq) => bTermIds.containsKey(term)
       }.map{
         case (term, freq) => (bTermIds(term), businessIdTermFreqs._2(term) * bIdfs(term) / businessTotalTerms)
       }.toSeq
-      Vectors.sparse(bTermIds.size, termScores)
+      (businessIdTermFreqs._1, Vectors.sparse(bTermIds.size, termScores))
     })
 
+    val vecs = businessIdVecs.map(businessIdTermTfidf => {
+      businessIdTermTfidf._2
+    })
     vecs.cache()
+
     val mat: RowMatrix = new RowMatrix(vecs)
     val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(500, computeU = true)
     val U: RowMatrix = svd.U
     val s: Vector = svd.s
     val V: Matrix = svd.V
 
-/*
-    val sqlContext = new SQLContext(sc)
-    import sqlContext.implicits._
-
-    val termsDF = lemmatized.toDF("title", "terms")
-    val filtered = termsDF.where(size($"terms") > 4)
-
-    val numTerms = 1000
-    val countVectorizer = new CountVectorizer()
-      .setInputCol("terms").setOutputCol("termFreqs").setVocabSize(numTerms)
-    val vocabModel = countVectorizer.fit(filtered)
-    val docTermFreqs = vocabModel.transform(filtered)
-    val termIds = vocabModel.vocabulary
-    docTermFreqs.cache()
-
-    val docIds = sc.broadcast(docTermFreqs.rdd.map(_.getString(0)).zipWithUniqueId().map(_.swap).collectAsMap())
-
-    val idf = new IDF().setInputCol("termFreqs").setOutputCol("tfidfVec")
-    val idfModel = idf.fit(docTermFreqs)
-    val docTermMatrix = idfModel.transform(docTermFreqs).select("title", "tfidfVec")
-    val termIdfs = idfModel.idf.toArray
-
-    docTermMatrix.cache()
-
-    val vecRdd = docTermMatrix.select("tfidfVec").rdd.map { row =>
-      Vectors.fromML(row.getAs[MLVector]("tfidfVec"))
-    }
-    vecRdd.cache()
-
-    val mat = new RowMatrix(vecRdd)
-    val k = 500
-    val svd = mat.computeSVD(k, computeU = true)
-*/
   }
 }
