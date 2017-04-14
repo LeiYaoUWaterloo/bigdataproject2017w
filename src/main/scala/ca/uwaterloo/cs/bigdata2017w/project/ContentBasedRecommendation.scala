@@ -91,9 +91,6 @@ object ContentBasedRecommendation extends Tokenizer{
       (array.business_id, array.text)
     }).groupByKey()
 
-    //total number of bussinesses
-    val numBusinesses = aggregatedReview.count()
-
     //preprocess: tokenize + lowcase + delele stopwords + only words + stemming
     val preprocessedReviews = aggregatedReview.map(businessIdReviews => {
         val reviews = new ArrayBuffer[String]()
@@ -126,29 +123,39 @@ object ContentBasedRecommendation extends Tokenizer{
     })
     businessTermFreqs.cache()
 
+    //total number of bussinesses
+    val numBusinesses = businessTermFreqs.count()
+
+    //business frequency of each term
     val termDocFreqs = businessTermFreqs.flatMap(businessIdTermsMap => {
       businessIdTermsMap._2.keySet
     }).map((_, 1))
       .reduceByKey(_+_)
 
+    //only take top "numTerms" frequent terms
     val numTerms = 50000
     val ordering = Ordering.by[(String, Int), Int](_._2)
     val topTermDocFreqs = termDocFreqs.top(numTerms)(ordering)
 
-    val idfs = topTermDocFreqs.map{
+    //compute inverse document frequency for each term
+    val idfs = sc.parallelize(topTermDocFreqs.map{
       case (term, count) => (term, math.log(numBusinesses.toDouble / count))
-    }.toMap
+    }).collectAsMap()
+    val bIdfs = sc.broadcast(idfs).value
 
-    val termIds = sc.broadcast(idfs.keys.zipWithIndex.toMap).value
+    // [term, index] index is a number indicating which column this term represents
+    val termIds = bIdfs.keys.zipWithIndex.toMap
+    val bTermIds = sc.broadcast(termIds).value
 
+    //compute tf-idf and get the final business * term matrix, which is "numBusiness * numTerms"
     val vecs = businessTermFreqs.map(businessIdTermFreqs => {
-      val businessTotalTerms = businessIdTermFreqs._2.values().sum
+      val businessTotalTerms = businessIdTermFreqs._2.values.sum
       val termScores = businessIdTermFreqs._2.filter {
-        case (term, freq) => termIds.containsKey(term)
+        case (term, freq) => bTermIds.containsKey(term)
       }.map{
-        case (term, freq) => (termIds(term), businessIdTermFreqs._2(term) * idfs(term) / businessTotalTerms)
+        case (term, freq) => (bTermIds(term), businessIdTermFreqs._2(term) * bIdfs(term) / businessTotalTerms)
       }.toSeq
-      Vectors.sparse(termIds.size, termScores)
+      Vectors.sparse(bTermIds.size, termScores)
     })
 
     vecs.cache()
