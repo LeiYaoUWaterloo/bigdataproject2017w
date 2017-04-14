@@ -131,7 +131,7 @@ object ContentBasedRecommendation extends Tokenizer{
       .reduceByKey(_+_)
 
     //only take top "numTerms" frequent terms
-    val numTerms = 1000
+    val numTerms = 2000
     val ordering = Ordering.by[(String, Int), Int](_._2)
     val topTermDocFreqs = termDocFreqs.top(numTerms)(ordering)
 
@@ -158,11 +158,11 @@ object ContentBasedRecommendation extends Tokenizer{
 
     val vecs = sc.parallelize(businessIdVecs.map(businessIdTermTfidf => {
       businessIdTermTfidf._2
-    }).take(1000))
+    }).take(10000))
     vecs.cache()
 
     val mat: RowMatrix = new RowMatrix(vecs)
-    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(30, computeU = true)
+    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(100, computeU = true)
     val U: RowMatrix = svd.U
     val s: Vector = svd.s
     val V: Matrix = svd.V
