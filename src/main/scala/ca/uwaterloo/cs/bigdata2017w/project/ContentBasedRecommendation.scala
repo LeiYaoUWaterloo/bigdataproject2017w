@@ -149,13 +149,14 @@ object ContentBasedRecommendation extends Tokenizer{
         case (term, freq) => (termIds(term), businessIdTermFreqs._2(term) * idfs(term) / businessTotalTerms)
       }.toSeq
       Vectors.sparse(termIds.size, termScores)
-    }).take(2).foreach(println(_))
+    })
 
-//    val mat: RowMatrix = new RowMatrix(vecs)
-//    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(100, computeU = true)
-//    val U: RowMatrix = svd.U
-//    val s: Vector = svd.s
-//    val V: Matrix = svd.V
+    vecs.cache()
+    val mat: RowMatrix = new RowMatrix(vecs)
+    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(500, computeU = true)
+    val U: RowMatrix = svd.U
+    val s: Vector = svd.s
+    val V: Matrix = svd.V
 
 /*
     val sqlContext = new SQLContext(sc)
@@ -189,39 +190,6 @@ object ContentBasedRecommendation extends Tokenizer{
     val mat = new RowMatrix(vecRdd)
     val k = 500
     val svd = mat.computeSVD(k, computeU = true)
-*/
-
-/*
-    vecs.cache()
-    val mat = new RowMatrix(vecs)
-    val k = 500
-    val svd = mat.computeSVD(k, computeU = true)
-
-    val u = svd.U.rows.zipWithUniqueId()
-    println("Singular values: " + svd.s)
-    sc.stop()
-*/
-
-    /*    .flatMap(line => {
-      tokenize(line)
-    }).filter(word => {
-      val wordLowcase = word.toLowerCase
-      !stopWords.contains(wordLowcase)
-    }).map(word => {
-      val wordLowcase = word.toLowerCase
-      if (stemmer.value.contains(wordLowcase)) {
-        stemmer.value(wordLowcase)
-      } else {
-        wordLowcase
-      }
-    }).mapPartitions(wcIter)
-      .reduceByKey(_ + _)
-      .map(tuple => tuple.swap)
-      .sortByKey(false)
-      .map(tuple => tuple.swap)
-      .filter(tuple => {
-        tuple._2 > 2
-      })
 */
   }
 }
