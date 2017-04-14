@@ -138,9 +138,9 @@ object ContentBasedRecommendation extends Tokenizer{
     val topTermDocFreqs = termDocFreqs.top(numTerms)(ordering)
 
     //compute inverse document frequency for each term
-    val idfs = sc.parallelize(topTermDocFreqs.map{
+    val idfs = topTermDocFreqs.map{
       case (term, count) => (term, math.log(numBusinesses.toDouble / count))
-    }).collectAsMap()
+    }.toMap
     val bIdfs = sc.broadcast(idfs).value
 
     // [term, index] index is a number indicating which column this term represents
