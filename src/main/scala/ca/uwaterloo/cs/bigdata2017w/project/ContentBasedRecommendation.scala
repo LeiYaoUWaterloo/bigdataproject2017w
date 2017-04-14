@@ -6,8 +6,11 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.rogach.scallop._
 import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.ml.linalg.{Vector => MLVector}
+import org.apache.spark.mllib.linalg.SingularValueDecomposition
+import org.apache.spark.mllib.linalg.Matrix
 
 import scala.collection.mutable._
 import scala.collection.mutable
@@ -111,9 +114,48 @@ object ContentBasedRecommendation extends Tokenizer{
         (businessIdReviews._1, reviews)
       })
 
-    
+    //business and a hashmap (term of this business -> term frequency)
+    val businessTermFreqs = preprocessedReviews.map(businessIdReviews => {
+      val termFreqs = businessIdReviews._2.foldLeft(new mutable.HashMap[String, Int]()) {
+        (map, term) => {
+          map += term -> (map.getOrElse(term, 0) + 1)
+          map
+        }
+      }
+      (businessIdReviews._1, termFreqs)
+    })
+    businessTermFreqs.cache()
 
+    val termDocFreqs = businessTermFreqs.flatMap(businessIdTermsMap => {
+      businessIdTermsMap._2.keySet
+    }).map((_, 1))
+      .reduceByKey(_+_)
 
+    val numTerms = 50000
+    val ordering = Ordering.by[(String, Int), Int](_._2)
+    val topTermDocFreqs = termDocFreqs.top(numTerms)(ordering)
+
+    val idfs = topTermDocFreqs.map{
+      case (term, count) => (term, math.log(numBusinesses.toDouble / count))
+    }.toMap
+
+    val termIds = sc.broadcast(idfs.keys.zipWithIndex.toMap).value
+
+    val vecs = businessTermFreqs.map(businessIdTermFreqs => {
+      val businessTotalTerms = businessIdTermFreqs._2.values().sum
+      val termScores = businessIdTermFreqs._2.filter {
+        case (term, freq) => termIds.containsKey(term)
+      }.map{
+        case (term, freq) => (termIds(term), businessIdTermFreqs._2(term) * idfs(term) / businessTotalTerms)
+      }.toSeq
+      Vectors.sparse(termIds.size, termScores)
+    }).take(2).foreach(println(_))
+
+//    val mat: RowMatrix = new RowMatrix(vecs)
+//    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(100, computeU = true)
+//    val U: RowMatrix = svd.U
+//    val s: Vector = svd.s
+//    val V: Matrix = svd.V
 
 /*
     val sqlContext = new SQLContext(sc)
@@ -150,40 +192,6 @@ object ContentBasedRecommendation extends Tokenizer{
 */
 
 /*
-    val docTermFreqs = lemmatized.map(tuple => {
-      val termFreqs = tuple._2.foldLeft(new mutable.HashMap[String, Int]()) {
-        (map, term) => {
-          map += term -> (map.getOrElse(term, 0) + 1)
-          map
-        }
-      }
-      termFreqs
-    })
-    docTermFreqs.cache()
-
-    val docFreqs = docTermFreqs.flatMap(_.keySet).map((_, 1)).reduceByKey(_+_)
-
-    val numTerms = 2000
-    val ordering = Ordering.by[(String, Int), Int](_._2)
-    val topDocFreqs = sc.parallelize(docFreqs.top(numTerms)(ordering))
-
-    val idfs = topDocFreqs.map{
-      case (term, count) => (term, math.log(numDocs.toDouble / count))
-    }.collectAsMap()
-    val bIdfs = sc.broadcast(idfs).value
-
-    val termIds = sc.broadcast(idfs.keys.zipWithIndex.toMap).value
-
-    val vecs = docTermFreqs.map(termFreqs => {
-      val docTotalTerms = termFreqs.values().sum
-      val termScores = termFreqs.filter {
-        case (term, freq) => termIds.containsKey(term)
-      }.map{
-        case (term, freq) => (termIds(term), bIdfs(term) * termFreqs(term) / docTotalTerms)
-      }.toSeq
-      Vectors.sparse(termIds.size, termScores)
-    })
-
     vecs.cache()
     val mat = new RowMatrix(vecs)
     val k = 500
