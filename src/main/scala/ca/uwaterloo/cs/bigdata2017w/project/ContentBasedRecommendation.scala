@@ -1,6 +1,7 @@
 package ca.uwaterloo.cs.bigdata2017w.project
 
 import org.apache.log4j._
+import org.apache.hadoop.fs._
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.rogach.scallop._
@@ -20,8 +21,9 @@ import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import io.bespin.scala.util.Tokenizer
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
-  mainOptions = Seq(review)
+  mainOptions = Seq(review, output)
   val review = opt[String](descr = "input path", required = true)
+  val output = opt[String](descr = "output path", required = true)
   verify()
 }
 
@@ -59,6 +61,9 @@ object ContentBasedRecommendation extends Tokenizer{
 
     val conf = new SparkConf().setAppName("ContentBasedRecommendation")
     val sc = new SparkContext(conf)
+
+    val outputDir = new Path(args.output())
+    FileSystem.get(sc.hadoopConfiguration).delete(outputDir, true)
 
     //construct stop words hashmap
     val stop_word = sc.textFile("data/stopwords.txt")
@@ -150,7 +155,10 @@ object ContentBasedRecommendation extends Tokenizer{
       }.toSeq
       (businessIdTermFreqs._1, Vectors.sparse(bTermIds.size, termScores))
     })
+      businessIdVecs.take(30).foreach(println(_))
+      sc.parallelize(businessIdVecs.take(1000)).saveAsTextFile(args.output())
 
+  /*
     val vecs = businessIdVecs.map(businessIdTermTfidf => {
       businessIdTermTfidf._2
     })
@@ -161,6 +169,6 @@ object ContentBasedRecommendation extends Tokenizer{
     val U: RowMatrix = svd.U
     val s: Vector = svd.s
     val V: Matrix = svd.V
-
+*/
   }
 }
