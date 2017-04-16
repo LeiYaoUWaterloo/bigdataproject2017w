@@ -21,9 +21,17 @@ import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import io.bespin.scala.util.Tokenizer
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
-  mainOptions = Seq(review, output)
-  val review = opt[String](descr = "input path", required = true)
+  mainOptions = Seq(user_id, state, review, user, business, output)
+
+  val user_id = opt[String](descr = "user id", required = true)
+  val state = opt[String](descr = "user state", required = true)
+
+  val review = opt[String](descr = "review data", required = true)
+  val user = opt[String](descr = "user data", required = true)
+  val business = opt[String](descr = "business data", required = true)
+
   val output = opt[String](descr = "output path", required = true)
+
   verify()
 }
 
@@ -42,6 +50,23 @@ class Review {
     s"date=$date, text=$text, useful=$useful, funny=$funny, cool=$cool)"
 }
 
+class Business{
+  @JsonProperty var business_id: String = null
+  @JsonProperty var stars: String = null
+  @JsonProperty var city: String = null
+  @JsonProperty var state: String = null
+  @JsonProperty var review_count: String = null
+  override def toString = s"Business(business_id=$business_id, stars=$stars,city=$city，state=$state, review_count=$review_count)"
+
+}
+
+class User{
+  @JsonProperty var user_id: String = null
+  @JsonProperty var name: String = null
+  @JsonProperty var review_count: String = null
+  override def toString = s"User(user_id=$user_id, name=$name, review_count=$review_count)"
+}
+
 object ContentBasedRecommendation extends Tokenizer{
   val log = Logger.getLogger(getClass().getName())
 
@@ -54,14 +79,18 @@ object ContentBasedRecommendation extends Tokenizer{
   mapper.registerModule(DefaultScalaModule)
 
   def main(argv: Array[String]): Unit = {
-    //set up
     val args = new Conf(argv)
 
-    log.info("Input: " + args.review())
+    log.info("User id: " + args.user_id())
+    log.info("User state: " + args.state())
+    log.info("Review data: " + args.review())
+    log.info("User data: " + args.user())
+    log.info("Business data: " + args.business())
 
     val conf = new SparkConf().setAppName("ContentBasedRecommendation")
     val sc = new SparkContext(conf)
 
+    //if output directory exits, delete it
     val outputDir = new Path(args.output())
     FileSystem.get(sc.hadoopConfiguration).delete(outputDir, true)
 
@@ -80,11 +109,31 @@ object ContentBasedRecommendation extends Tokenizer{
     }).collectAsMap()
     val stemmer = sc.broadcast(map2).value
 
+    //read in all data and transform into RDDs
     val review = sc.textFile(args.review())
+    val business = sc.textFile(args.business())
+    val user = sc.textFile(args.user())
+    val user_id =args.user_id()
+    val state = args.state()
 
-    //aggregate reviews for each bussiness
+    //transform json RDD to usual RDD (all businesses information)
+    val businessInfo = business.flatMap(record => {
+      Some(mapper.readValue(record, classOf[Business]))
+    })
+
+    //construct business hashmap given input state
+    val map3 = businessInfo.map(array => {
+      (array.business_id, array.state)
+    }).filter(array =>{
+      array._2 == state
+    }).collectAsMap()
+    val filteredBusiness = sc.broadcast(map3).value
+
+    //aggregate reviews for each bussiness in a state
     val aggregatedReview = review.flatMap(record => {
       Some(mapper.readValue(record, classOf[Review]))
+    }).filter(array => {
+      filteredBusiness.containsKey(array.business_id)
     }).map(array => {
       (array.business_id, array.text)
     }).groupByKey()
@@ -96,12 +145,12 @@ object ContentBasedRecommendation extends Tokenizer{
         while(iter.hasNext) {
           val words = tokenize(iter.next())
           for (word <- words) {
-            val wordLowcase = word.toLowerCase
-            if (!stopWords.containsKey(wordLowcase) && isOnlyLetters(wordLowcase)) {
-              if (stemmer.containsKey(wordLowcase)) {
-                reviews += stemmer(wordLowcase)
+            val wordLowercase = word.toLowerCase
+            if (!stopWords.containsKey(wordLowercase) && isOnlyLetters(wordLowercase)) {
+              if (stemmer.containsKey(wordLowercase)) {
+                reviews += stemmer(wordLowercase)
               } else {
-                reviews += wordLowcase
+                reviews += wordLowercase
               }
             }
           }
@@ -125,17 +174,17 @@ object ContentBasedRecommendation extends Tokenizer{
     val numBusinesses = businessTermFreqs.count()
 
     //business frequency of each term
-    val termDocFreqs = businessTermFreqs.flatMap(businessIdTermsMap => {
-      businessIdTermsMap._2.keySet
+    val termDocFreqs = businessTermFreqs.flatMap(businessIdTermsFreqsMap => {
+      businessIdTermsFreqsMap._2.keySet
     }).map((_, 1))
       .reduceByKey(_+_)
 
     //only take top "numTerms" frequent terms
-    val numTerms = 2000
+    val numTerms = 10000
     val ordering = Ordering.by[(String, Int), Int](_._2)
     val topTermDocFreqs = termDocFreqs.top(numTerms)(ordering)
 
-    //compute inverse document frequency for each term
+    //compute inverse document frequency (idf) for each term
     val idfs = topTermDocFreqs.map{
       case (term, count) => (term, math.log(numBusinesses.toDouble / count))
     }.toMap
@@ -156,13 +205,14 @@ object ContentBasedRecommendation extends Tokenizer{
       (businessIdTermFreqs._1, Vectors.sparse(bTermIds.size, termScores))
     })
 
-    val vecs = sc.parallelize(businessIdVecs.map(businessIdTermTfidf => {
+    val vecs = businessIdVecs.map(businessIdTermTfidf => {
       businessIdTermTfidf._2
-    }).take(10000))
+    })
     vecs.cache()
 
     val mat: RowMatrix = new RowMatrix(vecs)
-    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(100, computeU = true)
+    val k = 1000
+    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(k, computeU = true)
     val U: RowMatrix = svd.U
     val s: Vector = svd.s
     val V: Matrix = svd.V
