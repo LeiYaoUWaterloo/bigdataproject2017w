@@ -211,7 +211,7 @@ object ContentBasedRecommendation extends Tokenizer{
     vecs.cache()
 
     val mat: RowMatrix = new RowMatrix(vecs)
-    val k = 1000
+    val k = 200
     val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(k, computeU = true)
     val U: RowMatrix = svd.U
     val s: Vector = svd.s
