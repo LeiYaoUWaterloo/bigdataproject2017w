@@ -10,6 +10,7 @@ import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.mllib.linalg.SingularValueDecomposition
 import org.apache.spark.mllib.linalg.Matrix
+import org.apache.spark.mllib.linalg.{Matrices, Vector => MLLibVector}
 
 import scala.collection.mutable._
 import scala.collection.mutable
@@ -21,13 +22,12 @@ import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import io.bespin.scala.util.Tokenizer
 
 class Conf(args: Seq[String]) extends ScallopConf(args) {
-  mainOptions = Seq(user_id, state, review, user, business, output)
+  mainOptions = Seq(user_id, state, review, business, output)
 
   val user_id = opt[String](descr = "user id", required = true)
   val state = opt[String](descr = "user state", required = true)
 
   val review = opt[String](descr = "review data", required = true)
-  val user = opt[String](descr = "user data", required = true)
   val business = opt[String](descr = "business data", required = true)
 
   val output = opt[String](descr = "output path", required = true)
@@ -74,6 +74,26 @@ object ContentBasedRecommendation extends Tokenizer{
     str.forall(c => Character.isLetter(c))
   }
 
+
+  //Finds the product of a distributed matrix and a diagonal matrix represented by a vector
+  def multiplyByDiagonalRowMatrix(mat: RowMatrix, diag: MLLibVector): RowMatrix = {
+    val sArr = diag.toArray
+    new RowMatrix(mat.rows.map { vec =>
+      val vecArr = vec.toArray
+      val newArr = (0 until vec.size).toArray.map(i => vecArr(i) * sArr(i))
+      Vectors.dense(newArr)
+    })
+  }
+
+  //Returns a matrix where each row is divided by its length.
+  def distributedRowsNormalized(mat: RowMatrix): RowMatrix = {
+    new RowMatrix(mat.rows.map { vec =>
+      val array = vec.toArray
+      val length = math.sqrt(array.map(x => x * x).sum)
+      Vectors.dense(array.map(_ / length))
+    })
+  }
+
   val mapper = new ObjectMapper()
   mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
   mapper.registerModule(DefaultScalaModule)
@@ -84,7 +104,6 @@ object ContentBasedRecommendation extends Tokenizer{
     log.info("User id: " + args.user_id())
     log.info("User state: " + args.state())
     log.info("Review data: " + args.review())
-    log.info("User data: " + args.user())
     log.info("Business data: " + args.business())
 
     val conf = new SparkConf().setAppName("ContentBasedRecommendation")
@@ -112,7 +131,6 @@ object ContentBasedRecommendation extends Tokenizer{
     //read in all data and transform into RDDs
     val review = sc.textFile(args.review())
     val business = sc.textFile(args.business())
-    val user = sc.textFile(args.user())
     val user_id =args.user_id()
     val state = args.state()
 
@@ -170,6 +188,12 @@ object ContentBasedRecommendation extends Tokenizer{
     })
     businessTermFreqs.cache()
 
+    val docIds = businessTermFreqs.map(businessIdTermFreqs => {
+      businessIdTermFreqs._1
+    }).zipWithUniqueId().collectAsMap()
+    val bDocIds = sc.broadcast(docIds).value
+    val bIdDoc = sc.broadcast(docIds.map(_.swap)).value
+
     //total number of bussinesses
     val numBusinesses = businessTermFreqs.count()
 
@@ -222,6 +246,25 @@ object ContentBasedRecommendation extends Tokenizer{
     collect.foreach { vector => println(vector) }
     println(s"Singular values are: $s")
     println(s"V factor is:\n$V")
+
+    val docId = bDocIds("tggHJ7wk-6Wok_CSPd3aUA")
+    val US: RowMatrix = multiplyByDiagonalRowMatrix(U, s)
+    val normalizedUS: RowMatrix = distributedRowsNormalized(US)
+
+    // Look up the row in US corresponding to the business ID
+    val docRowArr = normalizedUS.rows.zipWithUniqueId.map(_.swap).lookup(docId).head.toArray
+    val docRowVec = Matrices.dense(docRowArr.length, 1, docRowArr)
+
+    // Compute scores against every business
+    val docScores = normalizedUS.multiply(docRowVec)
+
+    // Find the businesses with the highest scores
+    val allDocWeights = docScores.rows.map(_.toArray(0)).zipWithUniqueId
+
+    // Businesses can end up with NaN score if their row in U is all zeros.  Filter these out.
+    val idWeights = allDocWeights.filter(!_._1.isNaN).top(10)
+
+    println(idWeights.map { case (score, id) => (bIdDoc(id), score) }.mkString(", "))
 
   }
 }
