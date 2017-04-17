@@ -241,12 +241,13 @@ object ContentBasedRecommendation extends Tokenizer{
     val s: Vector = svd.s
     val V: Matrix = svd.V
 
+    /*
     val collect = U.rows.collect()
     println("U factor is:")
     collect.foreach { vector => println(vector) }
     println(s"Singular values are: $s")
     println(s"V factor is:\n$V")
-
+*/
     val docId = bDocIds("tggHJ7wk-6Wok_CSPd3aUA")
     val US: RowMatrix = multiplyByDiagonalRowMatrix(U, s)
     val normalizedUS: RowMatrix = distributedRowsNormalized(US)
