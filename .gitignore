@@ -1,4 +1,4 @@
-/data/*
+/data/yelp*
 /target/*
 /.idea/*
 src/main/main.iml
